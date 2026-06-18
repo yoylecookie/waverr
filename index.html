@@ -1,0 +1,653 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Waverr</title>
+
+<style>
+body{
+    margin:0;
+    background:#000;
+    color:#fff;
+    font-family:Arial, sans-serif;
+    overflow-x:hidden;
+}
+
+h1{
+    text-align:center;
+    font-weight:normal;
+    margin:20px 0;
+}
+
+/* ---------- CONFIG PANEL ---------- */
+
+#configPanel{
+    max-width:1000px;
+    margin:0 auto 20px auto;
+    border:1px solid #222;
+    background:#080808;
+    padding:15px;
+    box-sizing:border-box;
+}
+
+#configPanel h2{
+    margin-top:0;
+    font-weight:normal;
+}
+
+.configRow{
+    margin-bottom:15px;
+}
+
+.configRow label{
+    display:block;
+    margin-bottom:5px;
+    color:#bbb;
+    font-size:13px;
+}
+
+#columnInput{
+    width:80px;
+    padding:8px;
+    background:#111;
+    border:1px solid #333;
+    color:white;
+}
+
+.trackEditRow{
+    display:flex;
+    gap:10px;
+    margin-bottom:8px;
+}
+
+.trackEditRow input{
+    flex:1;
+    padding:8px;
+    background:#111;
+    border:1px solid #333;
+    color:white;
+}
+
+.deleteTrack{
+    background:#400;
+    border:1px solid #700;
+    color:white;
+    cursor:pointer;
+    padding:8px 12px;
+}
+
+.deleteTrack:hover{
+    background:#600;
+}
+
+.configButtons{
+    display:flex;
+    gap:10px;
+    flex-wrap:wrap;
+}
+
+/* ---------- UPLOAD CONTROLS ---------- */
+
+#controls{
+    display:grid;
+    grid-template-columns:repeat(2,1fr);
+    gap:10px;
+    max-width:1000px;
+    margin:0 auto 20px auto;
+}
+
+.track{
+    border:1px solid #222;
+    padding:10px;
+}
+
+.track label{
+    display:block;
+    margin-bottom:5px;
+    font-size:12px;
+    color:#bbb;
+}
+
+input[type="file"]{
+    width:100%;
+}
+
+/* ---------- BUTTONS ---------- */
+
+#buttons{
+    display:flex;
+    justify-content:center;
+    gap:10px;
+    margin-bottom:10px;
+    flex-wrap:wrap;
+}
+
+button{
+    background:#111;
+    border:1px solid #333;
+    color:#fff;
+    padding:10px 15px;
+    cursor:pointer;
+}
+
+button:hover{
+    background:#222;
+}
+
+/* ---------- TIMER ---------- */
+
+#timer{
+    text-align:center;
+    color:#aaa;
+    margin-bottom:20px;
+    font-size:18px;
+}
+
+/* ---------- OSCILLOSCOPE GRID ---------- */
+
+#grid{
+    display:grid;
+    gap:10px;
+    max-width:1200px;
+    margin:auto;
+    padding:0 10px 20px;
+    box-sizing:border-box;
+}
+
+.cell{
+    border:1px solid #222;
+    position:relative;
+    height:180px;
+}
+
+.title{
+    position:absolute;
+    top:5px;
+    left:8px;
+    font-size:12px;
+    color:#fff;
+    z-index:2;
+}
+
+canvas{
+    width:100%;
+    height:100%;
+}
+
+@media(max-width:700px){
+    #controls{
+        grid-template-columns:1fr;
+    }
+}
+</style>
+</head>
+
+<body>
+
+<h1>Waverr</h1>
+
+<div id="configPanel">
+
+    <h2>Configuration</h2>
+
+    <div class="configRow">
+        <label>Columns</label>
+        <input type="number" id="columnInput" min="1" value="2">
+    </div>
+
+    <div class="configRow">
+        <label>Track Names</label>
+        <div id="trackEditor"></div>
+    </div>
+
+    <div class="configButtons">
+        <button onclick="addTrack()">+ Add Track</button>
+        <button onclick="applyConfig()">Apply Config</button>
+    </div>
+
+</div>
+
+<div id="controls"></div>
+
+<div id="buttons">
+    <button onclick="play()">Play</button>
+    <button onclick="pausePlayback()">Pause</button>
+    <button onclick="document.documentElement.requestFullscreen()">Fullscreen</button>
+</div>
+
+<div id="timer">00:00</div>
+
+<div id="grid"></div>
+
+<script>
+
+/* =========================
+   CONFIG
+========================= */
+
+const CONFIG = {
+    columns: 2,
+
+    tracks: [
+        "Kicks",
+        "Snares",
+        "Cymbals",
+        "Chords",
+        "Bass",
+        "SFX"
+    ],
+
+    colors: [
+        "#ff4040",
+        "#ff9933",
+        "#ffff55",
+        "#55ffff",
+        "#55ff55",
+        "#ff55ff"
+    ]
+};
+
+/* ========================= */
+
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+let trackData = [];
+let startTime = 0;
+let pausedAt = 0;
+let playing = false;
+
+/* ---------- COLORS ---------- */
+
+function getColor(i){
+
+    if(i < CONFIG.colors.length){
+        return CONFIG.colors[i];
+    }
+
+    return `hsl(${(i * 137.508) % 360},100%,65%)`;
+}
+
+/* ---------- CONFIG PANEL ---------- */
+
+function renderTrackEditor(){
+
+    const editor = document.getElementById("trackEditor");
+
+    editor.innerHTML = "";
+
+    CONFIG.tracks.forEach((track,index)=>{
+
+        const row = document.createElement("div");
+        row.className = "trackEditRow";
+
+        const input = document.createElement("input");
+        input.type = "text";
+        input.value = track;
+
+        const del = document.createElement("button");
+        del.className = "deleteTrack";
+        del.textContent = "Delete";
+
+        del.onclick = () => {
+            removeTrack(index);
+        };
+
+        row.appendChild(input);
+        row.appendChild(del);
+
+        editor.appendChild(row);
+    });
+}
+
+function addTrack(){
+
+    CONFIG.tracks.push("New Track");
+
+    renderTrackEditor();
+}
+
+function removeTrack(index){
+
+    CONFIG.tracks.splice(index,1);
+
+    renderTrackEditor();
+}
+
+function applyConfig(){
+
+    const rows = document.querySelectorAll(".trackEditRow input");
+
+    CONFIG.tracks = [];
+
+    rows.forEach((input,i)=>{
+
+        const name =
+            input.value.trim() ||
+            `Track ${i+1}`;
+
+        CONFIG.tracks.push(name);
+    });
+
+    CONFIG.columns =
+        Math.max(
+            1,
+            parseInt(document.getElementById("columnInput").value) || 1
+        );
+
+    stop();
+
+    trackData = [];
+
+    pausedAt = 0;
+    playing = false;
+
+    document.getElementById("timer").innerText = "00:00";
+
+    buildUI();
+}
+
+/* ---------- BUILD UI ---------- */
+
+const controls = document.getElementById("controls");
+const grid = document.getElementById("grid");
+
+function buildUI(){
+
+    controls.innerHTML = "";
+    grid.innerHTML = "";
+
+    CONFIG.tracks.forEach((name,i)=>{
+
+        const div = document.createElement("div");
+
+        div.className = "track";
+
+        div.innerHTML = `
+            <label>${name}</label>
+            <input
+                type="file"
+                id="file_${i}"
+                accept=".m4a,audio/*"
+            >
+        `;
+
+        controls.appendChild(div);
+
+        const cell = document.createElement("div");
+        cell.className = "cell";
+
+        const title = document.createElement("div");
+        title.className = "title";
+        title.textContent = name;
+
+        const canvas = document.createElement("canvas");
+        canvas.id = "canvas_" + i;
+
+        cell.appendChild(title);
+        cell.appendChild(canvas);
+
+        grid.appendChild(cell);
+    });
+
+    grid.style.gridTemplateColumns =
+        `repeat(${CONFIG.columns},1fr)`;
+}
+
+/* ---------- AUDIO LOADING ---------- */
+
+async function loadTracks(){
+
+    trackData = [];
+
+    for(let i=0;i<CONFIG.tracks.length;i++){
+
+        const file =
+            document.getElementById(`file_${i}`).files[0];
+
+        if(!file){
+
+            alert(
+                "Missing file: " +
+                CONFIG.tracks[i]
+            );
+
+            return false;
+        }
+
+        const buffer =
+            await audioCtx.decodeAudioData(
+                await file.arrayBuffer()
+            );
+
+        const analyser =
+            audioCtx.createAnalyser();
+
+        analyser.fftSize = 2048;
+
+        trackData.push({
+            buffer,
+            analyser,
+            source:null
+        });
+    }
+
+    return true;
+}
+
+/* ---------- PLAY ---------- */
+
+function play(){
+
+    audioCtx.resume();
+
+    if(trackData.length === 0){
+
+        loadTracks().then(ok=>{
+
+            if(ok){
+                start(0);
+            }
+
+        });
+
+    }else{
+
+        start(pausedAt);
+
+    }
+}
+
+function start(offset){
+
+    stop();
+
+    trackData.forEach(track=>{
+
+        const source =
+            audioCtx.createBufferSource();
+
+        source.buffer = track.buffer;
+
+        source.connect(track.analyser);
+
+        track.analyser.connect(
+            audioCtx.destination
+        );
+
+        source.start(0,offset);
+
+        track.source = source;
+    });
+
+    startTime =
+        audioCtx.currentTime - offset;
+
+    playing = true;
+}
+
+/* ---------- STOP ---------- */
+
+function stop(){
+
+    trackData.forEach(track=>{
+
+        if(track.source){
+
+            try{
+                track.source.stop();
+            }catch(e){}
+
+        }
+
+    });
+}
+
+/* ---------- PAUSE ---------- */
+
+function pausePlayback(){
+
+    if(!playing) return;
+
+    pausedAt =
+        audioCtx.currentTime -
+        startTime;
+
+    stop();
+
+    playing = false;
+}
+
+/* ---------- GRID ---------- */
+
+function drawGrid(ctx,w,h){
+
+    ctx.strokeStyle = "#111";
+    ctx.lineWidth = 1;
+
+    for(let x=0;x<w;x+=40){
+
+        ctx.beginPath();
+        ctx.moveTo(x,0);
+        ctx.lineTo(x,h);
+        ctx.stroke();
+    }
+
+    for(let y=0;y<h;y+=30){
+
+        ctx.beginPath();
+        ctx.moveTo(0,y);
+        ctx.lineTo(w,y);
+        ctx.stroke();
+    }
+
+    ctx.strokeStyle = "#222";
+
+    ctx.beginPath();
+
+    ctx.moveTo(0,h/2);
+    ctx.lineTo(w,h/2);
+
+    ctx.stroke();
+}
+
+/* ---------- RENDER ---------- */
+
+function render(){
+
+    trackData.forEach((track,i)=>{
+
+        const canvas =
+            document.getElementById(
+                "canvas_" + i
+            );
+
+        if(!canvas) return;
+
+        const ctx =
+            canvas.getContext("2d");
+
+        canvas.width =
+            canvas.clientWidth;
+
+        canvas.height =
+            canvas.clientHeight;
+
+        const w = canvas.width;
+        const h = canvas.height;
+
+        ctx.fillStyle = "#000";
+        ctx.fillRect(0,0,w,h);
+
+        drawGrid(ctx,w,h);
+
+        const data =
+            new Uint8Array(
+                track.analyser.fftSize
+            );
+
+        track.analyser
+            .getByteTimeDomainData(data);
+
+        ctx.strokeStyle =
+            getColor(i);
+
+        ctx.lineWidth = 1.2;
+
+        ctx.beginPath();
+
+        for(let j=0;j<data.length;j++){
+
+            const x =
+                (j/data.length) * w;
+
+            const y =
+                (data[j]/255) * h;
+
+            if(j===0){
+                ctx.moveTo(x,y);
+            }else{
+                ctx.lineTo(x,y);
+            }
+        }
+
+        ctx.stroke();
+    });
+
+    if(playing){
+
+        const t =
+            audioCtx.currentTime -
+            startTime;
+
+        const m =
+            Math.floor(t/60);
+
+        const s =
+            Math.floor(t%60);
+
+        document.getElementById("timer")
+            .innerText =
+            String(m).padStart(2,"0")
+            + ":"
+            + String(s).padStart(2,"0");
+    }
+
+    requestAnimationFrame(render);
+}
+
+/* ---------- INIT ---------- */
+
+document.getElementById("columnInput").value =
+    CONFIG.columns;
+
+renderTrackEditor();
+
+buildUI();
+
+render();
+
+</script>
+
+</body>
+</html>
